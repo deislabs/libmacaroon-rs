@@ -1,5 +1,5 @@
 use error::MacaroonError;
-use sodiumoxide::crypto::auth::hmacsha512256::{authenticate, gen_key, Key, Tag};
+use sodiumoxide::crypto::auth::hmacsha256::{authenticate, gen_key, Key, Tag};
 use sodiumoxide::crypto::secretbox;
 use std::borrow::Borrow;
 use std::ops::{Deref, DerefMut};

@@ -8,12 +8,10 @@ use MacaroonError;
 use MacaroonKey;
 use Result;
 
-pub type VerifyFunc = fn(&ByteString) -> bool;
-
 #[derive(Default)]
 pub struct Verifier {
     exact: BTreeSet<ByteString>,
-    general: Vec<VerifyFunc>,
+    general: Vec<Box<dyn Fn(&ByteString) -> bool>>,
 }
 
 impl Verifier {
@@ -80,8 +78,11 @@ impl Verifier {
         self.exact.insert(b);
     }
 
-    pub fn satisfy_general(&mut self, f: VerifyFunc) {
-        self.general.push(f)
+    pub fn satisfy_general<F: 'static>(&mut self, f: F)
+    where
+        F: Fn(&ByteString) -> bool,
+    {
+        self.general.push(Box::new(f))
     }
 
     fn verify_general(&self, value: &ByteString) -> bool {
@@ -220,6 +221,50 @@ mod tests {
         verifier
             .verify(&macaroon, &key, Default::default())
             .unwrap()
+    }
+
+    #[test]
+    fn test_macaroon_two_exact_and_general_closure_caveat() {
+        let from_ip = "::1";
+        let key: MacaroonKey = "this is the key".into();
+        let mut macaroon =
+            Macaroon::create(Some("http://example.org/".into()), &key, "keyid".into()).unwrap();
+        macaroon.add_first_party_caveat("account = 3735928559".into());
+        macaroon.add_first_party_caveat("user = alice".into());
+        macaroon.add_first_party_caveat("time > 2010-01-01T00:00".into());
+        macaroon.add_first_party_caveat("ipaddr in ::1".into());
+        let mut verifier = Verifier::default();
+        verifier.satisfy_exact("account = 3735928559".into());
+        verifier.satisfy_exact("user = alice".into());
+        verifier.satisfy_general(after_time_verifier);
+        verifier.satisfy_general(move |caveat| {
+            caveat.0 == ("ipaddr in ".to_string() + from_ip).as_bytes()
+        });
+        verifier
+            .verify(&macaroon, &key, Default::default())
+            .unwrap()
+    }
+
+    #[test]
+    fn test_macaroon_two_exact_and_general_closure_caveat_fail() {
+        let from_ip = "127.0.0.1";
+        let key: MacaroonKey = "this is the key".into();
+        let mut macaroon =
+            Macaroon::create(Some("http://example.org/".into()), &key, "keyid".into()).unwrap();
+        macaroon.add_first_party_caveat("account = 3735928559".into());
+        macaroon.add_first_party_caveat("user = alice".into());
+        macaroon.add_first_party_caveat("time > 2010-01-01T00:00".into());
+        macaroon.add_first_party_caveat("ipaddr in ::1".into());
+        let mut verifier = Verifier::default();
+        verifier.satisfy_exact("account = 3735928559".into());
+        verifier.satisfy_exact("user = alice".into());
+        verifier.satisfy_general(after_time_verifier);
+        verifier.satisfy_general(move |caveat| {
+            caveat.0 == ("ipaddr in ".to_string() + from_ip).as_bytes()
+        });
+        verifier
+            .verify(&macaroon, &key, Default::default())
+            .unwrap_err();
     }
 
     #[test]
